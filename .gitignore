@@ -1,0 +1,22 @@
+# Generator output
+out/
+test_out/
+*.cef.log
+*.json.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Bicep / Azure
+*.bicepparam
+.azure/

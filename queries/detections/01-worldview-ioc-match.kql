@@ -1,0 +1,20 @@
+// Detection — WorldView IOC match against named ICS threat actor
+//
+// Fires when Dragos has matched activity to a named threat group from
+// the WorldView intel feed (ELECTRUM, VOLTZITE, CHERNOVITE, KAMACITE,
+// XENOTIME, etc.). These are the highest-fidelity alerts in the platform
+// because they imply a direct correlation to known adversary infrastructure
+// or TTPs.
+//
+// Suggested rule cadence: every 5 minutes, lookback 10 minutes.
+// Suggested severity: High or Critical.
+//
+// Depends on: Dragos_Events parser
+
+Dragos_Events
+| where TimeGenerated > ago(10m)
+| where isnotempty(WorldViewActor)
+| project TimeGenerated, Activity, Severity, WorldViewActor,
+          SourceIP, DestinationIP, SrcAssetRole, DstAssetRole,
+          MitreIcsTechnique, DragosCaseId, Message
+| order by TimeGenerated desc

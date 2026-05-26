@@ -1,0 +1,37 @@
+// eyeInspect_Events — parser function for Forescout eyeInspect events
+//
+// Save as a Sentinel function named: eyeInspect_Events
+//
+// What it does:
+//   - Filters to Forescout eyeInspect only
+//   - Surfaces cs1–cs4 with the labels eyeInspect uses
+//   - Pulls AlertSeverityNum from cn1 for numeric severity ordering
+
+CommonSecurityLog
+| where DeviceVendor =~ "Forescout" and DeviceProduct =~ "eyeInspect"
+| extend
+    Protocol_OT       = DeviceCustomString1,   // OT protocol name (Modbus/TCP, S7comm, etc.)
+    DstAssetRole      = DeviceCustomString2,
+    SrcAssetRole      = DeviceCustomString3,
+    RuleCategory      = DeviceCustomString4,   // IndustrialThreatLibrary, BehavioralCheck, OperationalCheck, CustomRule
+    AlertSeverityNum  = toint(DeviceCustomNumber1),
+    EngineeringTool   = DeviceProcessName,
+    Severity          = toint(LogSeverity)
+| project
+    TimeGenerated,
+    RuleId            = DeviceEventClassID,
+    Activity,
+    Severity,
+    AlertSeverityNum,
+    SourceIP,
+    SourcePort,
+    DestinationIP,
+    DestinationPort,
+    Protocol_Network  = Protocol,
+    Protocol_OT,
+    SrcAssetRole,
+    DstAssetRole,
+    RuleCategory,
+    EngineeringTool,
+    AlertId           = ExternalID,
+    Message

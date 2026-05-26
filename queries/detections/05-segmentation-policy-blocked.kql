@@ -1,0 +1,26 @@
+// Detection — Segmentation policy blocked an attempted cross-zone connection
+//
+// eyeSegment with Action == "Block" means something actually tried to
+// cross zones and was stopped. While the block prevented the connection,
+// the *attempt* itself is interesting — especially from OT zones outbound
+// to Internet.
+//
+// Suggested cadence: every 10 minutes, lookback 15 minutes.
+// Suggested severity: Medium (raise to High if zone is OT outbound to Internet).
+
+CommonSecurityLog
+| where TimeGenerated > ago(15m)
+| where DeviceVendor =~ "Forescout" and DeviceProduct =~ "eyeSegment"
+| extend SrcZone = DeviceCustomString1,
+         DstZone = DeviceCustomString2,
+         PolicyName = DeviceCustomString3,
+         Action = DeviceCustomString4
+| where Action =~ "Block"
+| extend Severity = toint(LogSeverity),
+         RiskScore = case(
+             SrcZone has "OT" and DstZone == "Internet",  10,
+             SrcZone has "OT" and DstZone has "Corporate", 7,
+             5)
+| project TimeGenerated, RiskScore, Severity, SrcZone, DstZone, PolicyName,
+          SourceIP, DestinationIP, DestinationPort, Protocol, Message
+| order by RiskScore desc, TimeGenerated desc

@@ -1,0 +1,28 @@
+// Detection — Modbus write targeting a safety controller
+//
+// Safety instrumented systems (SIS) exist to prevent dangerous process
+// states. Any write operation to a safety controller is by definition
+// out of the ordinary — these devices should be in "locked" or "run-only"
+// mode during normal operations.
+//
+// Maps to MITRE T0836 (Modify Parameter) when the write changes a setpoint.
+//
+// Suggested cadence: every 5 minutes, lookback 10 minutes.
+// Suggested severity: Critical.
+
+CommonSecurityLog
+| where TimeGenerated > ago(10m)
+| where DeviceVendor in~ ("Dragos", "Forescout")
+| extend DstRole = DeviceCustomString2
+| where DstRole has "Safety" or Activity has "Safety"
+| project TimeGenerated,
+          Platform = strcat(DeviceVendor, " / ", DeviceProduct),
+          RuleId = DeviceEventClassID,
+          Activity,
+          Severity = toint(LogSeverity),
+          SourceIP,
+          DestinationIP,
+          DstAssetRole = DstRole,
+          SrcAssetRole = DeviceCustomString1,
+          Message
+| order by TimeGenerated desc

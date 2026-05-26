@@ -1,0 +1,17 @@
+// Operations — Parser coverage canary
+//
+// Catches the symptom of the RFC 5424/3164 framing bug: when rsyslog mangles
+// the message body, IPs end up concatenated in AdditionalExtensions instead
+// of in SourceIP/DestinationIP.
+//
+// A healthy pipeline returns zero rows. Any row here means the generator or
+// upstream syslog is emitting frames rsyslog can't parse cleanly.
+
+CommonSecurityLog
+| where TimeGenerated > ago(1h)
+| where DeviceVendor in~ ("Dragos", "Forescout")
+| where isempty(SourceIP) or isempty(DestinationIP)
+| extend IpsInExtensions = extract(@"(\d+\.\d+\.\d+\.\d+)", 1, AdditionalExtensions)
+| project TimeGenerated, DeviceVendor, DeviceProduct, DeviceEventClassID,
+          SourceIP, DestinationIP, IpsInExtensions, AdditionalExtensions
+| take 50

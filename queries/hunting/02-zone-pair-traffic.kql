@@ -1,0 +1,21 @@
+// Hunt — Top-talker zone pairs from eyeSegment
+//
+// Which OT zones are talking to which? Surfaces the busiest cross-zone
+// communication patterns. Useful for:
+//   - Spotting unauthorized communication paths that should be blocked
+//   - Tuning segmentation policy before going to enforce mode
+//   - Identifying baseline traffic patterns for normal vs anomalous
+
+CommonSecurityLog
+| where TimeGenerated > ago(7d)
+| where DeviceVendor =~ "Forescout" and DeviceProduct =~ "eyeSegment"
+| extend SrcZone = DeviceCustomString1,
+         DstZone = DeviceCustomString2,
+         Action = DeviceCustomString4
+| where SrcZone != "n/a" and DstZone != "n/a"
+| summarize EventCount = count(),
+            UniqueSrcIPs = dcount(SourceIP),
+            UniqueDstIPs = dcount(DestinationIP),
+            Actions = make_set(Action)
+          by SrcZone, DstZone
+| order by EventCount desc

@@ -1,0 +1,45 @@
+// Dragos_Events — parser function for Dragos Platform events
+//
+// Save this as a function in Sentinel:
+//   1. Paste this query into the Logs blade
+//   2. Click "Save" → "Save as function"
+//   3. Function name: Dragos_Events
+//   4. Category: OT (or whatever you prefer)
+//
+// After saving, any other query can call this as: Dragos_Events
+//
+// What it does:
+//   - Filters to Dragos Platform only
+//   - Surfaces cs1–cs4 as friendly names matching their CEF labels
+//   - Extracts dragosCaseId, dragosNotifId, and worldviewActorId from
+//     AdditionalExtensions
+
+CommonSecurityLog
+| where DeviceVendor =~ "Dragos" and DeviceProduct =~ "Platform"
+| extend
+    SrcAssetRole       = DeviceCustomString1,
+    DstAssetRole       = DeviceCustomString2,
+    MitreIcsTechnique  = DeviceCustomString3,
+    AnalyticType       = DeviceCustomString4,
+    DragosCaseId       = extract(@"dragosCaseId=([^\s;]+)",      1, AdditionalExtensions),
+    DragosNotifId      = extract(@"dragosNotifId=([^\s;]+)",     1, AdditionalExtensions),
+    WorldViewActor     = extract(@"worldviewActorId=([^\s;]+)",  1, AdditionalExtensions),
+    Severity           = toint(LogSeverity)
+| project
+    TimeGenerated,
+    RuleId            = DeviceEventClassID,
+    Activity,
+    Severity,
+    SourceIP,
+    SourcePort,
+    DestinationIP,
+    DestinationPort,
+    Protocol,
+    SrcAssetRole,
+    DstAssetRole,
+    MitreIcsTechnique,
+    AnalyticType,
+    DragosCaseId,
+    DragosNotifId,
+    WorldViewActor,
+    Message

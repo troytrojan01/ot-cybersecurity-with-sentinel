@@ -1,0 +1,25 @@
+// Hunt — Off-hours engineering tool activity
+//
+// Engineering tools (RSLogix5000, Studio5000, TIA Portal) being used outside
+// business hours is a meaningful signal. Legitimate work happens during
+// scheduled maintenance windows, which the SOC should know about ahead of
+// time. Anything else is worth investigating.
+//
+// Adjust the hour window to match your environment's business hours.
+
+CommonSecurityLog
+| where TimeGenerated > ago(7d)
+| where DeviceVendor =~ "Forescout" and DeviceProduct =~ "eyeInspect"
+| where isnotempty(DeviceProcessName)
+| extend HourLocal = hourofday(TimeGenerated),
+         DayOfWeek = dayofweek(TimeGenerated)
+| where HourLocal < 7 or HourLocal >= 19          // before 7am or after 7pm
+     or DayOfWeek == 0d or DayOfWeek == 6d         // weekend
+| project TimeGenerated, HourLocal, DayOfWeek,
+          EngineeringTool = DeviceProcessName,
+          Activity,
+          SourceIP,
+          DestinationIP,
+          DstAssetRole = DeviceCustomString2,
+          Message
+| order by TimeGenerated desc

@@ -1,0 +1,35 @@
+// Detection — Cross-platform correlation on the same asset
+//
+// When both Dragos and Forescout produce alerts within 5 minutes that
+// share a destination IP (typically a PLC or other controller), that's
+// much stronger signal than either alert on its own. Two independent
+// sensors saw something concerning at the same place.
+//
+// Suggested cadence: every 5 minutes, lookback 10 minutes.
+// Suggested severity: High.
+
+let dragos = CommonSecurityLog
+    | where TimeGenerated > ago(10m)
+    | where DeviceVendor =~ "Dragos"
+    | project DragosTime = TimeGenerated,
+              DragosRule = DeviceEventClassID,
+              DragosActivity = Activity,
+              DragosSeverity = toint(LogSeverity),
+              Asset = DestinationIP,
+              SourceIP;
+let forescout = CommonSecurityLog
+    | where TimeGenerated > ago(10m)
+    | where DeviceVendor =~ "Forescout" and DeviceProduct =~ "eyeInspect"
+    | project FsTime = TimeGenerated,
+              FsRule = DeviceEventClassID,
+              FsActivity = Activity,
+              FsSeverity = toint(LogSeverity),
+              Asset = DestinationIP;
+dragos
+| join kind=inner forescout on Asset
+| where abs(datetime_diff('second', DragosTime, FsTime)) <= 300
+| project Asset, SourceIP,
+          DragosTime, DragosRule, DragosActivity, DragosSeverity,
+          FsTime, FsRule, FsActivity, FsSeverity,
+          CombinedSeverity = max_of(DragosSeverity, FsSeverity)
+| order by CombinedSeverity desc, DragosTime desc

@@ -1,0 +1,29 @@
+// Hunt — Rare protocols hitting controllers
+//
+// Most PLCs in a given site speak one or two protocols (e.g., Modbus and
+// EtherNet/IP). Seeing a third protocol show up — especially toward a PLC —
+// is unusual. Could indicate:
+//   - New equipment installed but not communicated to the SOC
+//   - An adversary probing for which protocols a device speaks
+//   - Misconfigured engineering software
+//
+// This compares the last hour against a 7-day baseline.
+
+let lookback = 7d;
+let window   = 1h;
+let baseline =
+    CommonSecurityLog
+    | where TimeGenerated between (ago(lookback) .. ago(window))
+    | where DeviceVendor =~ "Forescout" and DeviceProduct =~ "eyeInspect"
+    | extend DstRole = DeviceCustomString2, ProtocolOT = DeviceCustomString1
+    | where DstRole in ("PLC", "RTU", "IED", "SafetyController", "DCSController")
+    | distinct DestinationIP, ProtocolOT;
+CommonSecurityLog
+| where TimeGenerated > ago(window)
+| where DeviceVendor =~ "Forescout" and DeviceProduct =~ "eyeInspect"
+| extend DstRole = DeviceCustomString2, ProtocolOT = DeviceCustomString1
+| where DstRole in ("PLC", "RTU", "IED", "SafetyController", "DCSController")
+| join kind=leftanti baseline on DestinationIP, ProtocolOT
+| project TimeGenerated, SourceIP, DestinationIP, DstRole, ProtocolOT,
+          Activity, Message
+| order by TimeGenerated desc

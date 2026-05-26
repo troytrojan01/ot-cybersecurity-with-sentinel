@@ -1,0 +1,11 @@
+// 04 — Event rate over time
+//
+// Timechart of events per minute, split by platform. Flat-lining or sudden
+// drops usually mean the rsyslog → AMA pipeline broke or AMA lost its DCR
+// association. Use this as a quick visual health check.
+
+CommonSecurityLog
+| where TimeGenerated > ago(6h)
+| where DeviceVendor in~ ("Dragos", "Forescout")
+| summarize Events = count() by bin(TimeGenerated, 1m), DeviceProduct
+| render timechart

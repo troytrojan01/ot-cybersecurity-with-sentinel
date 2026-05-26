@@ -1,0 +1,33 @@
+// Detection — PLC program download (MITRE T0843)
+//
+// Program downloads to a PLC outside an approved change window are one
+// of the clearest indicators of an OT intrusion or insider risk. Both
+// Dragos (ENI-014) and eyeInspect (ITL-2034) detect this.
+//
+// Tuning notes:
+//   - Whitelist known engineering hosts via a watchlist if false positives
+//     are high.
+//   - Pair with a change management system to suppress during approved
+//     windows.
+//
+// Suggested cadence: every 5 minutes, lookback 10 minutes.
+// Suggested severity: High.
+
+CommonSecurityLog
+| where TimeGenerated > ago(10m)
+| where DeviceVendor in~ ("Dragos", "Forescout")
+| extend MitreIcs = DeviceCustomString3
+| where MitreIcs has "T0843"
+   or Activity has "Program Download"
+   or DeviceEventClassID in ("ENI-014", "ITL-2034")
+| project TimeGenerated,
+          Platform = strcat(DeviceVendor, " / ", DeviceProduct),
+          RuleId = DeviceEventClassID,
+          Activity,
+          Severity = toint(LogSeverity),
+          SourceIP,
+          DestinationIP,
+          DstAssetRole = DeviceCustomString2,
+          EngineeringTool = DeviceProcessName,
+          Message
+| order by TimeGenerated desc

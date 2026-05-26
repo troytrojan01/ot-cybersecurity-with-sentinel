@@ -1,0 +1,35 @@
+// OT_Events_Unified — unified view across Dragos and Forescout
+//
+// Save as a Sentinel function named: OT_Events_Unified
+//
+// Provides a single consistent schema for cross-platform queries. Fields that
+// don't apply for a given platform return empty strings.
+//
+// Depends on: Dragos_Events, eyeInspect_Events, eyeSegment_Events
+
+union
+    (Dragos_Events
+        | extend Platform = "Dragos",
+                 SrcZone = "", DstZone = "", PolicyName = "", Action = "",
+                 Protocol_OT = "", RuleCategory = AnalyticType
+        | project TimeGenerated, Platform, RuleId, Activity, Severity,
+                  SourceIP, DestinationIP, SrcAssetRole, DstAssetRole,
+                  MitreIcsTechnique, RuleCategory, SrcZone, DstZone,
+                  PolicyName, Action, Protocol_OT, Message),
+    (eyeInspect_Events
+        | extend Platform = "eyeInspect",
+                 MitreIcsTechnique = "", SrcZone = "", DstZone = "",
+                 PolicyName = "", Action = ""
+        | project TimeGenerated, Platform, RuleId, Activity, Severity,
+                  SourceIP, DestinationIP, SrcAssetRole, DstAssetRole,
+                  MitreIcsTechnique, RuleCategory, SrcZone, DstZone,
+                  PolicyName, Action, Protocol_OT, Message),
+    (eyeSegment_Events
+        | extend Platform = "eyeSegment",
+                 SrcAssetRole = "", DstAssetRole = "",
+                 MitreIcsTechnique = "", RuleCategory = "Segmentation",
+                 Protocol_OT = ""
+        | project TimeGenerated, Platform, RuleId, Activity, Severity,
+                  SourceIP, DestinationIP, SrcAssetRole, DstAssetRole,
+                  MitreIcsTechnique, RuleCategory, SrcZone, DstZone,
+                  PolicyName, Action, Protocol_OT, Message)

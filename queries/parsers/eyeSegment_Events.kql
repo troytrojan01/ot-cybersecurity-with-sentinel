@@ -1,0 +1,32 @@
+// eyeSegment_Events — parser function for Forescout eyeSegment events
+//
+// Save as a Sentinel function named: eyeSegment_Events
+//
+// What it does:
+//   - Filters to Forescout eyeSegment only
+//   - Surfaces cs1–cs4 as zone pair, policy name, and action
+
+CommonSecurityLog
+| where DeviceVendor =~ "Forescout" and DeviceProduct =~ "eyeSegment"
+| extend
+    SrcZone      = DeviceCustomString1,
+    DstZone      = DeviceCustomString2,
+    PolicyName   = DeviceCustomString3,
+    Action       = DeviceCustomString4,         // Alert, Block, Audit
+    Severity     = toint(LogSeverity)
+| project
+    TimeGenerated,
+    RuleId       = DeviceEventClassID,
+    Activity,
+    Severity,
+    SrcZone,
+    DstZone,
+    PolicyName,
+    Action,
+    SourceIP,
+    SourcePort,
+    DestinationIP,
+    DestinationPort,
+    Protocol,
+    EventId      = ExternalID,
+    Message

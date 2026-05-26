@@ -1,0 +1,10 @@
+// 01 — Ingestion overview
+//
+// First query to run after setup. Confirms which OT platforms are producing
+// events and gives a quick count by activity type.
+
+CommonSecurityLog
+| where TimeGenerated > ago(1h)
+| where DeviceVendor in~ ("Dragos", "Forescout")
+| summarize Events = count() by DeviceVendor, DeviceProduct, Activity
+| order by Events desc

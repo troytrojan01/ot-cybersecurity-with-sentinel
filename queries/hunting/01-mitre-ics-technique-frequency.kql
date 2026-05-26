@@ -1,0 +1,19 @@
+// Hunt — MITRE ATT&CK for ICS technique frequency
+//
+// Heatmap of which techniques are observed in your environment. Useful for
+// tuning detection coverage — techniques you see frequently are good
+// candidates for tightened detections; techniques you never see may
+// indicate a sensor blind spot or a quiet environment.
+//
+// References: https://attack.mitre.org/matrices/ics/
+
+CommonSecurityLog
+| where TimeGenerated > ago(7d)
+| where DeviceVendor in~ ("Dragos", "Forescout")
+| extend MitreIcs = DeviceCustomString3
+| where isnotempty(MitreIcs) and MitreIcs startswith "T0"
+| mv-expand TechniqueId = split(MitreIcs, ",")
+| extend TechniqueId = trim(" ", tostring(TechniqueId))
+| summarize Events = count(), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated)
+          by TechniqueId, DeviceVendor
+| order by Events desc

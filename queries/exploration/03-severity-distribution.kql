@@ -1,0 +1,20 @@
+// 03 — Severity distribution
+//
+// How event severity is distributed per platform. Useful sanity check —
+// a healthy mix is mostly low/medium with a long tail of high-severity
+// events. All-low or all-high suggests something is wrong with the source.
+//
+// CEF severity is a 0–10 scale; LogSeverity in CommonSecurityLog is a string,
+// so cast to int before bucketing.
+
+CommonSecurityLog
+| where TimeGenerated > ago(24h)
+| where DeviceVendor in~ ("Dragos", "Forescout")
+| extend Sev = toint(LogSeverity)
+| extend SeverityBucket = case(
+    Sev >= 8, "1-Critical (8-10)",
+    Sev >= 5, "2-High (5-7)",
+    Sev >= 3, "3-Medium (3-4)",
+                "4-Low (0-2)")
+| summarize Events = count() by DeviceProduct, SeverityBucket
+| order by DeviceProduct asc, SeverityBucket asc

@@ -1,0 +1,29 @@
+// Detection — PLC mode change to PROGRAM (MITRE T0858)
+//
+// Switching a PLC from RUN to PROGRAM mode halts process control. In a
+// production environment, this should only happen during scheduled
+// maintenance. Outside of that, it's either a misoperation or hostile.
+//
+// This is one of the highest-impact OT detections — a successful mode
+// change can stop a process line.
+//
+// Suggested cadence: every 5 minutes, lookback 10 minutes.
+// Suggested severity: Critical.
+
+CommonSecurityLog
+| where TimeGenerated > ago(10m)
+| where DeviceVendor in~ ("Dragos", "Forescout")
+| extend MitreIcs = DeviceCustomString3
+| where MitreIcs has "T0858"
+   or Activity has "Mode Change"
+   or Activity has "Operating Mode"
+| project TimeGenerated,
+          Platform = strcat(DeviceVendor, " / ", DeviceProduct),
+          RuleId = DeviceEventClassID,
+          Activity,
+          Severity = toint(LogSeverity),
+          SourceIP,
+          DestinationIP,
+          DstAssetRole = DeviceCustomString2,
+          Message
+| order by TimeGenerated desc

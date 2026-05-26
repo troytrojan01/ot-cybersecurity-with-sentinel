@@ -1,0 +1,16 @@
+// Operations — Daily ingestion volume by OT platform
+//
+// How much data each platform is contributing. Useful for cost tracking
+// when planning to scale up rates or add new sensors. Log Analytics bills
+// per GB ingested.
+//
+// _BilledSize is in bytes; convert to MB for readability.
+
+CommonSecurityLog
+| where TimeGenerated > ago(7d)
+| where DeviceVendor in~ ("Dragos", "Forescout")
+| summarize
+    Events = count(),
+    SizeMB = round(sum(_BilledSize) / 1024.0 / 1024.0, 2)
+    by Day = bin(TimeGenerated, 1d), DeviceVendor, DeviceProduct
+| order by Day desc, SizeMB desc

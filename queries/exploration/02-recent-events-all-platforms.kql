@@ -1,0 +1,27 @@
+// 02 — Recent events with full context
+//
+// One row per OT event with the columns that matter. Click any row in the
+// Logs blade to expand and see every field for that event.
+
+CommonSecurityLog
+| where TimeGenerated > ago(1h)
+| where DeviceVendor in~ ("Dragos", "Forescout")
+| project
+    TimeGenerated,
+    DeviceVendor,
+    DeviceProduct,
+    Activity,
+    LogSeverity,
+    SourceIP,
+    SourcePort,
+    DestinationIP,
+    DestinationPort,
+    Protocol,
+    DeviceCustomString1,
+    DeviceCustomString2,
+    DeviceCustomString3,
+    DeviceCustomString4,
+    Message,
+    AdditionalExtensions
+| order by TimeGenerated desc
+| take 100
