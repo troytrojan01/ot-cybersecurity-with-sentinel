@@ -19,7 +19,7 @@ Use this to:
 │   ├── detections/         Analytics-rule-shaped queries
 │   ├── hunting/            Open-ended threat hunting queries
 │   └── operations/         Health, cost, parser-quality monitoring
-├── docs/                   Architecture, field mappings, MITRE ATT&CK for ICS reference
+├── docs/                   Architecture, field mappings, MITRE ATT&CK for ICS reference, dashboard snapshots
 └── setup/                  Azure infrastructure setup steps
 ```
 
@@ -33,6 +33,8 @@ Use this to:
    ```
 3. Wait ~5 minutes, then run the exploration queries to confirm data is flowing
 4. Save the parser functions from `queries/parsers/` so the detection and hunting queries can use them
+
+For examples of what the generated data looks like in Sentinel, see [`docs/sentinel-dashboard-snapshots.md`](docs/sentinel-dashboard-snapshots.md).
 
 ## Architecture at a glance
 
