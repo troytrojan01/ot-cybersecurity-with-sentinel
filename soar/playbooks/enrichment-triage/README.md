@@ -33,7 +33,7 @@ On incident creation it:
 
 ## Deploy
 
-1. Deploy the template (portal: Sentinel > Automation > Create > Playbook with custom template, or `az deployment group create`). Supply `WorkspaceName`; the subscription and resource group default to the deployment target.
+1. Deploy `azuredeploy.json` from **Sentinel > Automation > Import**. Supply `WorkspaceName`; the subscription and resource group default to the deployment target. If Import is not available or rejects the template, use Azure portal **Deploy a custom template** or `az deployment group create`.
 2. Authorize the two API connections (`azuresentinel`, `azuremonitorlogs`) after deployment.
 3. The Logic App is created with a system-assigned managed identity. Grant it the roles it needs: Microsoft Sentinel Responder on the workspace (to comment and update incidents) and Log Analytics Reader (to run the query). Authorizing the connections covers the classic path; the managed identity is there if you switch the connections to identity-based auth.
 4. Create a Sentinel automation rule: trigger "When incident is created", condition optionally scoped to your OT analytics rules, action "Run playbook" -> this playbook.

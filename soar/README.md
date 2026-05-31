@@ -51,12 +51,27 @@ For each of the six detection rules:
 4. Leave incident creation and alert grouping at the default so each detection produces an incident.
 
 ### Step 3: Deploy the playbooks
-Deploy both ARM templates (portal: Sentinel > Automation > Create > Playbook with custom template, or `az deployment group create`). Supply `WorkspaceName`; subscription and resource group default to the deployment target.
+Deploy the ARM templates from Sentinel Automation using **Import**. The **Create** menu is for building new blank playbooks and may not show a custom-template option.
+
+Recommended portal path:
+
+1. Open **Microsoft Sentinel > Automation** for your workspace.
+2. Select **Import** from the top toolbar.
+3. Import each playbook template:
+   - `soar/playbooks/enrichment-triage/azuredeploy.json`
+   - `soar/playbooks/gated-containment/azuredeploy.json`
+   - `soar/playbooks/ticketing/azuredeploy.json` if you want queue-mailbox ticketing
+4. Set `WorkspaceName` to your Sentinel workspace name.
+5. Leave `PlaybookName` at the default unless you intentionally renamed the workflow.
+6. For the ticketing playbook, also set `TicketQueueAddress` to the mailbox or distribution list that should receive tickets.
+
+If **Import** does not accept the template in your tenant, use Azure portal **Deploy a custom template** instead: search for **Deploy a custom template**, choose **Build your own template in the editor**, load the same `azuredeploy.json`, then supply the same parameters. The Azure CLI equivalent is `az deployment group create`.
 
 After deployment, authorize the API connections:
 
 - enrichment-triage: `azuresentinel`, `azuremonitorlogs`
 - gated-containment: `azuresentinel`, `azuremonitorlogs`, `office365` (sign in as the mailbox that sends approval requests)
+- ticketing: `azuresentinel`, `azuremonitorlogs`, `office365` (sign in as the mailbox that sends ticket emails)
 
 Then grant each playbook's system-assigned managed identity the **Microsoft Sentinel Responder** role on the workspace so it can comment on and update incidents. The query path works through the authorized `azuremonitorlogs` connection; if you switch to identity-based auth, also grant **Log Analytics Reader**.
 

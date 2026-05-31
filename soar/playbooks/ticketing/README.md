@@ -18,7 +18,7 @@ This playbook does not depend on ServiceNow, Jira, or any paid ITSM. The default
 
 ## Deploy
 
-1. Deploy `ticketing.azuredeploy.json`; supply `WorkspaceName` and `TicketQueueAddress` (the mailbox or list that acts as your queue).
+1. Deploy `azuredeploy.json` from **Sentinel > Automation > Import**. Supply `WorkspaceName` and `TicketQueueAddress` (the mailbox or list that acts as your queue). If Import is not available or rejects the template, use Azure portal **Deploy a custom template** or `az deployment group create`.
 2. Authorize the three connections: `azuresentinel`, `azuremonitorlogs`, `office365` (sign in as the sender).
 3. Grant the managed identity Microsoft Sentinel Responder on the workspace.
 4. In the OT automation rule, add this as the middle action: run enrichment first (so tags and context exist), then ticketing, then gated containment.

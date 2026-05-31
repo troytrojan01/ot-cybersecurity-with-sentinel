@@ -29,7 +29,7 @@ In OT, automated containment that touches a live process can be more dangerous t
 
 ## Deploy
 
-1. Deploy the template; supply `WorkspaceName`.
+1. Deploy `azuredeploy.json` from **Sentinel > Automation > Import**. Supply `WorkspaceName`. If Import is not available or rejects the template, use Azure portal **Deploy a custom template** or `az deployment group create`.
 2. Authorize the three API connections: `azuresentinel`, `azuremonitorlogs`, and `office365` (sign in as the mailbox that will send approval requests).
 3. Grant the Logic App's managed identity Microsoft Sentinel Responder on the workspace.
 4. Add this playbook as the second action (after enrichment) in the OT automation rule, or as its own automation rule conditioned on tag contains `tier-2`.
