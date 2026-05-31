@@ -28,7 +28,9 @@ let forescout = CommonSecurityLog
 dragos
 | join kind=inner forescout on Asset
 | where abs(datetime_diff('second', DragosTime, FsTime)) <= 300
-| project Asset, SourceIP,
+| project DestinationIP = Asset,
+          Asset,
+          SourceIP,
           DragosTime, DragosRule, DragosActivity, DragosSeverity,
           FsTime, FsRule, FsActivity, FsSeverity,
           CombinedSeverity = max_of(DragosSeverity, FsSeverity)
