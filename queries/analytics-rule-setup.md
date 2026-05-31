@@ -102,7 +102,7 @@ Recommended custom details:
 |---|---|
 | `SourceIP` | `SourceIP` |
 | `Activity` | `Activity` |
-| `RuleId` | `RuleId` |
+| `RuleId` | `RuleId` where present |
 | `Severity` | `Severity` |
 | `Platform` | `Platform` where present |
 | `Message` | `Message` |
