@@ -1,0 +1,289 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "PlaybookName": {
+      "type": "string",
+      "defaultValue": "OT-Ticketing"
+    },
+    "WorkspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Log Analytics / Sentinel workspace name"
+      }
+    },
+    "WorkspaceResourceGroup": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().name]"
+    },
+    "WorkspaceSubscriptionId": {
+      "type": "string",
+      "defaultValue": "[subscription().subscriptionId]"
+    },
+    "TicketQueueAddress": {
+      "type": "string",
+      "metadata": {
+        "description": "Mailbox or distribution list that acts as the ticket queue"
+      }
+    }
+  },
+  "variables": {
+    "AzureSentinelConnectionName": "[concat('azuresentinel-', parameters('PlaybookName'))]",
+    "AzureMonitorLogsConnectionName": "[concat('azuremonitorlogs-', parameters('PlaybookName'))]",
+    "Office365ConnectionName": "[concat('office365-', parameters('PlaybookName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('AzureSentinelConnectionName')]",
+      "location": "[resourceGroup().location]",
+      "kind": "V1",
+      "properties": {
+        "displayName": "[variables('AzureSentinelConnectionName')]",
+        "api": {
+          "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuresentinel')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('AzureMonitorLogsConnectionName')]",
+      "location": "[resourceGroup().location]",
+      "kind": "V1",
+      "properties": {
+        "displayName": "[variables('AzureMonitorLogsConnectionName')]",
+        "api": {
+          "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuremonitorlogs')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('Office365ConnectionName')]",
+      "location": "[resourceGroup().location]",
+      "kind": "V1",
+      "properties": {
+        "displayName": "[variables('Office365ConnectionName')]",
+        "api": {
+          "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/office365')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Logic/workflows",
+      "apiVersion": "2017-07-01",
+      "name": "[parameters('PlaybookName')]",
+      "location": "[resourceGroup().location]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/connections', variables('AzureSentinelConnectionName'))]",
+        "[resourceId('Microsoft.Web/connections', variables('AzureMonitorLogsConnectionName'))]",
+        "[resourceId('Microsoft.Web/connections', variables('Office365ConnectionName'))]"
+      ],
+      "properties": {
+        "state": "Enabled",
+        "definition": {
+          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "$connections": {
+              "defaultValue": {},
+              "type": "Object"
+            },
+            "WorkspaceSubscriptionId": {
+              "type": "String"
+            },
+            "WorkspaceResourceGroup": {
+              "type": "String"
+            },
+            "WorkspaceName": {
+              "type": "String"
+            },
+            "TicketQueueAddress": {
+              "type": "String"
+            }
+          },
+          "triggers": {
+            "Microsoft_Sentinel_incident": {
+              "type": "ApiConnectionWebhook",
+              "inputs": {
+                "body": {
+                  "callback_url": "@{listCallbackUrl()}"
+                },
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                  }
+                },
+                "path": "/incident-creation"
+              }
+            }
+          },
+          "actions": {
+            "Get_IPs": {
+              "runAfter": {},
+              "type": "ApiConnection",
+              "inputs": {
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                  }
+                },
+                "method": "post",
+                "path": "/entities/ip",
+                "body": "@triggerBody()?['object']?['properties']?['relatedEntities']"
+              }
+            },
+            "Compose_affectedIp": {
+              "runAfter": {
+                "Get_IPs": [
+                  "Succeeded"
+                ]
+              },
+              "type": "Compose",
+              "inputs": "@first(body('Get_IPs')?['IPs'])?['Address']"
+            },
+            "Run_enrichment_query": {
+              "runAfter": {
+                "Compose_affectedIp": [
+                  "Succeeded"
+                ]
+              },
+              "type": "ApiConnection",
+              "inputs": {
+                "body": "let targetIp = \"@{outputs('Compose_affectedIp')}\";\nlet subnets = _GetWatchlist('ot-subnet-context');\nlet roles   = _GetWatchlist('ot-role-context');\nCommonSecurityLog\n| where TimeGenerated > ago(1h)\n| where DestinationIP == targetIp\n| where DeviceVendor in~ (\"Dragos\", \"Forescout\")\n| summarize arg_max(TimeGenerated, *) by DestinationIP\n| extend DstRole = tostring(DeviceCustomString2)\n| evaluate ipv4_lookup(subnets, DestinationIP, subnet)\n| lookup kind=leftouter roles on $left.DstRole == $right.asset_role\n| project DestinationIP, DstRole, Activity, zone, plant, purdue_level, device_class, criticality, owner_team, poc_contact",
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['azuremonitorlogs']['connectionId']"
+                  }
+                },
+                "method": "post",
+                "path": "/queryData",
+                "queries": {
+                  "resourcegroups": "@parameters('WorkspaceResourceGroup')",
+                  "resourcename": "@parameters('WorkspaceName')",
+                  "resourcetype": "Log Analytics Workspace",
+                  "subscriptions": "@parameters('WorkspaceSubscriptionId')",
+                  "timerange": "Set in query"
+                }
+              }
+            },
+            "Compose_enrichment": {
+              "runAfter": {
+                "Run_enrichment_query": [
+                  "Succeeded"
+                ]
+              },
+              "type": "Compose",
+              "inputs": "@first(body('Run_enrichment_query')?['value'])"
+            },
+            "Select_tags": {
+              "runAfter": {
+                "Compose_enrichment": [
+                  "Succeeded"
+                ]
+              },
+              "type": "Select",
+              "inputs": {
+                "from": "@coalesce(triggerBody()?['object']?['properties']?['labels'], json('[]'))",
+                "select": "@item()?['labelName']"
+              }
+            },
+            "Compose_nextAction": {
+              "runAfter": {
+                "Select_tags": [
+                  "Succeeded"
+                ]
+              },
+              "type": "Compose",
+              "inputs": "@if(contains(string(triggerBody()?['object']?['properties']?['labels']), 'tier-2'), 'Approval-gated containment applies. Coordinate with the asset POC and OT engineer before any action.', if(contains(string(triggerBody()?['object']?['properties']?['labels']), 'tier-1'), 'Conditional IT-side containment may apply. Verify the affected asset is IT-side and non-critical.', 'Observe and enrich. Analyst to investigate; no containment.'))"
+            },
+            "Create_ticket_send_to_queue": {
+              "runAfter": {
+                "Compose_nextAction": [
+                  "Succeeded"
+                ]
+              },
+              "type": "ApiConnection",
+              "inputs": {
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['office365']['connectionId']"
+                  }
+                },
+                "method": "post",
+                "path": "/v2/Mail",
+                "body": {
+                  "To": "@parameters('TicketQueueAddress')",
+                  "Subject": "[OT-TKT-@{triggerBody()?['object']?['properties']?['incidentNumber']}] @{triggerBody()?['object']?['properties']?['title']}",
+                  "Body": "<h3>OT incident ticket</h3><b>Ticket:</b> OT-TKT-@{triggerBody()?['object']?['properties']?['incidentNumber']}<br><b>Title:</b> @{triggerBody()?['object']?['properties']?['title']}<br><b>Severity:</b> @{triggerBody()?['object']?['properties']?['severity']}<br><b>Tags:</b> @{join(body('Select_tags'), ', ')}<br><br><b>Affected asset:</b> @{outputs('Compose_affectedIp')} (@{outputs('Compose_enrichment')?['device_class']})<br><b>Zone / Plant:</b> @{outputs('Compose_enrichment')?['zone']} / @{outputs('Compose_enrichment')?['plant']}<br><b>Purdue level:</b> @{outputs('Compose_enrichment')?['purdue_level']} &nbsp; <b>Criticality:</b> @{outputs('Compose_enrichment')?['criticality']}<br><b>Owner / contact:</b> @{outputs('Compose_enrichment')?['owner_team']} / @{outputs('Compose_enrichment')?['poc_contact']}<br><br><b>Recommended next action:</b> @{outputs('Compose_nextAction')}<br><br><b>Incident:</b> <a href=\"@{triggerBody()?['object']?['properties']?['incidentUrl']}\">open in Sentinel</a>",
+                  "Importance": "Normal"
+                }
+              }
+            },
+            "Record_ticket_on_incident": {
+              "runAfter": {
+                "Create_ticket_send_to_queue": [
+                  "Succeeded"
+                ]
+              },
+              "type": "ApiConnection",
+              "inputs": {
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                  }
+                },
+                "method": "post",
+                "path": "/Incidents/Comment",
+                "body": {
+                  "incidentArmId": "@triggerBody()?['object']?['id']",
+                  "message": "Ticket <b>OT-TKT-@{triggerBody()?['object']?['properties']?['incidentNumber']}</b> created and sent to the ops queue (@{parameters('TicketQueueAddress')})."
+                }
+              }
+            }
+          },
+          "outputs": {}
+        },
+        "parameters": {
+          "$connections": {
+            "value": {
+              "azuresentinel": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('AzureSentinelConnectionName'))]",
+                "connectionName": "[variables('AzureSentinelConnectionName')]",
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuresentinel')]"
+              },
+              "azuremonitorlogs": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('AzureMonitorLogsConnectionName'))]",
+                "connectionName": "[variables('AzureMonitorLogsConnectionName')]",
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuremonitorlogs')]"
+              },
+              "office365": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('Office365ConnectionName'))]",
+                "connectionName": "[variables('Office365ConnectionName')]",
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/office365')]"
+              }
+            }
+          },
+          "WorkspaceSubscriptionId": {
+            "value": "[parameters('WorkspaceSubscriptionId')]"
+          },
+          "WorkspaceResourceGroup": {
+            "value": "[parameters('WorkspaceResourceGroup')]"
+          },
+          "WorkspaceName": {
+            "value": "[parameters('WorkspaceName')]"
+          },
+          "TicketQueueAddress": {
+            "value": "[parameters('TicketQueueAddress')]"
+          }
+        }
+      }
+    }
+  ]
+}

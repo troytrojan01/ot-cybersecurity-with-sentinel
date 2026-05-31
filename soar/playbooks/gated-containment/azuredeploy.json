@@ -1,0 +1,391 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "PlaybookName": {
+      "type": "string",
+      "defaultValue": "OT-Gated-Containment"
+    },
+    "WorkspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Log Analytics / Sentinel workspace name"
+      }
+    },
+    "WorkspaceResourceGroup": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().name]"
+    },
+    "WorkspaceSubscriptionId": {
+      "type": "string",
+      "defaultValue": "[subscription().subscriptionId]"
+    }
+  },
+  "variables": {
+    "AzureSentinelConnectionName": "[concat('azuresentinel-', parameters('PlaybookName'))]",
+    "AzureMonitorLogsConnectionName": "[concat('azuremonitorlogs-', parameters('PlaybookName'))]",
+    "Office365ConnectionName": "[concat('office365-', parameters('PlaybookName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('AzureSentinelConnectionName')]",
+      "location": "[resourceGroup().location]",
+      "kind": "V1",
+      "properties": {
+        "displayName": "[variables('AzureSentinelConnectionName')]",
+        "api": {
+          "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuresentinel')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('AzureMonitorLogsConnectionName')]",
+      "location": "[resourceGroup().location]",
+      "kind": "V1",
+      "properties": {
+        "displayName": "[variables('AzureMonitorLogsConnectionName')]",
+        "api": {
+          "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuremonitorlogs')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('Office365ConnectionName')]",
+      "location": "[resourceGroup().location]",
+      "kind": "V1",
+      "properties": {
+        "displayName": "[variables('Office365ConnectionName')]",
+        "api": {
+          "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/office365')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Logic/workflows",
+      "apiVersion": "2017-07-01",
+      "name": "[parameters('PlaybookName')]",
+      "location": "[resourceGroup().location]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/connections', variables('AzureSentinelConnectionName'))]",
+        "[resourceId('Microsoft.Web/connections', variables('AzureMonitorLogsConnectionName'))]",
+        "[resourceId('Microsoft.Web/connections', variables('Office365ConnectionName'))]"
+      ],
+      "properties": {
+        "state": "Enabled",
+        "definition": {
+          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "$connections": {
+              "defaultValue": {},
+              "type": "Object"
+            },
+            "WorkspaceSubscriptionId": {
+              "type": "String"
+            },
+            "WorkspaceResourceGroup": {
+              "type": "String"
+            },
+            "WorkspaceName": {
+              "type": "String"
+            }
+          },
+          "triggers": {
+            "Microsoft_Sentinel_incident": {
+              "type": "ApiConnectionWebhook",
+              "inputs": {
+                "body": {
+                  "callback_url": "@{listCallbackUrl()}"
+                },
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                  }
+                },
+                "path": "/incident-creation"
+              }
+            }
+          },
+          "actions": {
+            "Guard_tier_2_only": {
+              "runAfter": {},
+              "type": "If",
+              "expression": {
+                "and": [
+                  {
+                    "equals": [
+                      "@contains(string(triggerBody()?['object']?['properties']?['labels']), 'tier-2')",
+                      true
+                    ]
+                  }
+                ]
+              },
+              "actions": {
+                "Get_IPs": {
+                  "runAfter": {},
+                  "type": "ApiConnection",
+                  "inputs": {
+                    "host": {
+                      "connection": {
+                        "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                      }
+                    },
+                    "method": "post",
+                    "path": "/entities/ip",
+                    "body": "@triggerBody()?['object']?['properties']?['relatedEntities']"
+                  }
+                },
+                "Compose_affectedIp": {
+                  "runAfter": {
+                    "Get_IPs": [
+                      "Succeeded"
+                    ]
+                  },
+                  "type": "Compose",
+                  "inputs": "@first(body('Get_IPs')?['IPs'])?['Address']"
+                },
+                "Run_enrichment_query": {
+                  "runAfter": {
+                    "Compose_affectedIp": [
+                      "Succeeded"
+                    ]
+                  },
+                  "type": "ApiConnection",
+                  "inputs": {
+                    "body": "let targetIp = \"@{outputs('Compose_affectedIp')}\";\nlet subnets = _GetWatchlist('ot-subnet-context');\nlet roles   = _GetWatchlist('ot-role-context');\nCommonSecurityLog\n| where TimeGenerated > ago(1h)\n| where DestinationIP == targetIp\n| where DeviceVendor in~ (\"Dragos\", \"Forescout\")\n| summarize arg_max(TimeGenerated, *) by DestinationIP\n| extend DstRole = tostring(DeviceCustomString2)\n| evaluate ipv4_lookup(subnets, DestinationIP, subnet)\n| lookup kind=leftouter roles on $left.DstRole == $right.asset_role\n| project DestinationIP, DstRole, Activity, zone, plant, purdue_level, device_class, criticality, owner_team, poc_contact, maintenance_window",
+                    "host": {
+                      "connection": {
+                        "name": "@parameters('$connections')['azuremonitorlogs']['connectionId']"
+                      }
+                    },
+                    "method": "post",
+                    "path": "/queryData",
+                    "queries": {
+                      "resourcegroups": "@parameters('WorkspaceResourceGroup')",
+                      "resourcename": "@parameters('WorkspaceName')",
+                      "resourcetype": "Log Analytics Workspace",
+                      "subscriptions": "@parameters('WorkspaceSubscriptionId')",
+                      "timerange": "Set in query"
+                    }
+                  }
+                },
+                "Compose_enrichment": {
+                  "runAfter": {
+                    "Run_enrichment_query": [
+                      "Succeeded"
+                    ]
+                  },
+                  "type": "Compose",
+                  "inputs": "@first(body('Run_enrichment_query')?['value'])"
+                },
+                "Compose_proposedAction": {
+                  "runAfter": {
+                    "Compose_enrichment": [
+                      "Succeeded"
+                    ]
+                  },
+                  "type": "Compose",
+                  "inputs": "@if(equals(outputs('Compose_enrichment')?['device_class'], 'SIS'), 'Do NOT auto-isolate this safety controller. Coordinate manually with Safety Systems and propose logical isolation only after a safe state is confirmed.', if(or(equals(outputs('Compose_enrichment')?['device_class'], 'PLC'), equals(outputs('Compose_enrichment')?['device_class'], 'RTU'), equals(outputs('Compose_enrichment')?['device_class'], 'IED'), equals(outputs('Compose_enrichment')?['device_class'], 'DCSController')), concat('Propose logical isolation of ', outputs('Compose_affectedIp'), ' at the zone boundary and blocking of the offending control path.'), concat('Propose quarantining ', outputs('Compose_affectedIp'), ' and revoking its OT access.')))"
+                },
+                "Send_approval_email": {
+                  "runAfter": {
+                    "Compose_proposedAction": [
+                      "Succeeded"
+                    ]
+                  },
+                  "type": "ApiConnectionWebhook",
+                  "inputs": {
+                    "host": {
+                      "connection": {
+                        "name": "@parameters('$connections')['office365']['connectionId']"
+                      }
+                    },
+                    "body": {
+                      "NotificationUrl": "@{listCallbackUrl()}",
+                      "Message": {
+                        "To": "@{outputs('Compose_enrichment')?['poc_contact']}",
+                        "Subject": "OT containment approval: @{triggerBody()?['object']?['properties']?['title']}",
+                        "Options": "Approve, Reject",
+                        "Importance": "High",
+                        "Body": "<h3>OT containment approval required</h3><p>A Tier 2 incident needs a human decision before any containment touches the OT environment.</p><b>Affected asset:</b> @{outputs('Compose_affectedIp')} (@{outputs('Compose_enrichment')?['device_class']})<br><b>Zone / Plant:</b> @{outputs('Compose_enrichment')?['zone']} / @{outputs('Compose_enrichment')?['plant']}<br><b>Purdue level:</b> @{outputs('Compose_enrichment')?['purdue_level']} &nbsp; <b>Criticality:</b> @{outputs('Compose_enrichment')?['criticality']}<br><b>Detection:</b> @{triggerBody()?['object']?['properties']?['title']}<br><b>Maintenance window:</b> @{outputs('Compose_enrichment')?['maintenance_window']}<br><br><b>Proposed action:</b> @{outputs('Compose_proposedAction')}<br><br><b>Incident:</b> <a href=\"@{triggerBody()?['object']?['properties']?['incidentUrl']}\">open in Sentinel</a><br><p>Approve only after confirming this will not drive the process into an unsafe or inconsistent state.</p>",
+                        "HideHTMLMessage": false,
+                        "ShowHTMLConfirmationDialog": true
+                      }
+                    },
+                    "path": "/approvalmail/$subscriptions"
+                  }
+                },
+                "Check_decision": {
+                  "runAfter": {
+                    "Send_approval_email": [
+                      "Succeeded"
+                    ]
+                  },
+                  "type": "If",
+                  "expression": {
+                    "and": [
+                      {
+                        "equals": [
+                          "@body('Send_approval_email')?['SelectedOption']",
+                          "Approve"
+                        ]
+                      }
+                    ]
+                  },
+                  "actions": {
+                    "Comment_approved": {
+                      "runAfter": {},
+                      "type": "ApiConnection",
+                      "inputs": {
+                        "host": {
+                          "connection": {
+                            "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                          }
+                        },
+                        "method": "post",
+                        "path": "/Incidents/Comment",
+                        "body": {
+                          "incidentArmId": "@triggerBody()?['object']?['id']",
+                          "message": "<h3>Containment APPROVED (simulated in lab)</h3><b>Approved via emailed approval to:</b> @{outputs('Compose_enrichment')?['poc_contact']}<br><b>Action:</b> @{outputs('Compose_proposedAction')}<br><b>Asset:</b> @{outputs('Compose_affectedIp')} (@{outputs('Compose_enrichment')?['device_class']}, @{outputs('Compose_enrichment')?['zone']})<br><br><b>Controlled recovery checklist (activity 7.2.1):</b><ol><li>Confirm the process is in a safe state with the OT engineer before any reconnection.</li><li>Confirm root cause is understood and the offending activity has stopped.</li><li>Restore connectivity in a controlled, monitored window.</li><li>Validate device state and process variables after reconnection.</li><li>Document the recovery and close the incident only after validation.</li></ol>"
+                        }
+                      }
+                    },
+                    "Tag_contained": {
+                      "runAfter": {
+                        "Comment_approved": [
+                          "Succeeded"
+                        ]
+                      },
+                      "type": "ApiConnection",
+                      "inputs": {
+                        "host": {
+                          "connection": {
+                            "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                          }
+                        },
+                        "method": "put",
+                        "path": "/Incidents",
+                        "body": {
+                          "incidentArmId": "@triggerBody()?['object']?['id']",
+                          "status": "Active",
+                          "tagsToAdd": {
+                            "TagsToAdd": [
+                              {
+                                "Tag": "contained-sim"
+                              },
+                              {
+                                "Tag": "pending-controlled-recovery"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "else": {
+                    "actions": {
+                      "Comment_declined": {
+                        "runAfter": {},
+                        "type": "ApiConnection",
+                        "inputs": {
+                          "host": {
+                            "connection": {
+                              "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                            }
+                          },
+                          "method": "post",
+                          "path": "/Incidents/Comment",
+                          "body": {
+                            "incidentArmId": "@triggerBody()?['object']?['id']",
+                            "message": "<h3>Containment DECLINED</h3><b>Declined via emailed approval to:</b> @{outputs('Compose_enrichment')?['poc_contact']}<br>Automated containment was not taken. The incident is left active for manual handling by @{outputs('Compose_enrichment')?['owner_team']}."
+                          }
+                        }
+                      },
+                      "Tag_declined": {
+                        "runAfter": {
+                          "Comment_declined": [
+                            "Succeeded"
+                          ]
+                        },
+                        "type": "ApiConnection",
+                        "inputs": {
+                          "host": {
+                            "connection": {
+                              "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                            }
+                          },
+                          "method": "put",
+                          "path": "/Incidents",
+                          "body": {
+                            "incidentArmId": "@triggerBody()?['object']?['id']",
+                            "tagsToAdd": {
+                              "TagsToAdd": [
+                                {
+                                  "Tag": "containment-declined"
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "else": {
+                "actions": {
+                  "Not_tier_2_no_op": {
+                    "type": "Terminate",
+                    "inputs": {
+                      "runStatus": "Succeeded"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "outputs": {}
+        },
+        "parameters": {
+          "$connections": {
+            "value": {
+              "azuresentinel": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('AzureSentinelConnectionName'))]",
+                "connectionName": "[variables('AzureSentinelConnectionName')]",
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuresentinel')]"
+              },
+              "azuremonitorlogs": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('AzureMonitorLogsConnectionName'))]",
+                "connectionName": "[variables('AzureMonitorLogsConnectionName')]",
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuremonitorlogs')]"
+              },
+              "office365": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('Office365ConnectionName'))]",
+                "connectionName": "[variables('Office365ConnectionName')]",
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/office365')]"
+              }
+            }
+          },
+          "WorkspaceSubscriptionId": {
+            "value": "[parameters('WorkspaceSubscriptionId')]"
+          },
+          "WorkspaceResourceGroup": {
+            "value": "[parameters('WorkspaceResourceGroup')]"
+          },
+          "WorkspaceName": {
+            "value": "[parameters('WorkspaceName')]"
+          }
+        }
+      }
+    }
+  ]
+}

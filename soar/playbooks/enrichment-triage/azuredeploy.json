@@ -1,0 +1,310 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "PlaybookName": {
+      "type": "string",
+      "defaultValue": "OT-Enrichment-Triage"
+    },
+    "WorkspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Log Analytics / Sentinel workspace name"
+      }
+    },
+    "WorkspaceResourceGroup": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().name]"
+    },
+    "WorkspaceSubscriptionId": {
+      "type": "string",
+      "defaultValue": "[subscription().subscriptionId]"
+    }
+  },
+  "variables": {
+    "AzureSentinelConnectionName": "[concat('azuresentinel-', parameters('PlaybookName'))]",
+    "AzureMonitorLogsConnectionName": "[concat('azuremonitorlogs-', parameters('PlaybookName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('AzureSentinelConnectionName')]",
+      "location": "[resourceGroup().location]",
+      "kind": "V1",
+      "properties": {
+        "displayName": "[variables('AzureSentinelConnectionName')]",
+        "api": {
+          "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuresentinel')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('AzureMonitorLogsConnectionName')]",
+      "location": "[resourceGroup().location]",
+      "kind": "V1",
+      "properties": {
+        "displayName": "[variables('AzureMonitorLogsConnectionName')]",
+        "api": {
+          "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuremonitorlogs')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Logic/workflows",
+      "apiVersion": "2017-07-01",
+      "name": "[parameters('PlaybookName')]",
+      "location": "[resourceGroup().location]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/connections', variables('AzureSentinelConnectionName'))]",
+        "[resourceId('Microsoft.Web/connections', variables('AzureMonitorLogsConnectionName'))]"
+      ],
+      "properties": {
+        "state": "Enabled",
+        "definition": {
+          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "$connections": {
+              "defaultValue": {},
+              "type": "Object"
+            },
+            "WorkspaceSubscriptionId": {
+              "type": "String"
+            },
+            "WorkspaceResourceGroup": {
+              "type": "String"
+            },
+            "WorkspaceName": {
+              "type": "String"
+            }
+          },
+          "triggers": {
+            "Microsoft_Sentinel_incident": {
+              "type": "ApiConnectionWebhook",
+              "inputs": {
+                "body": {
+                  "callback_url": "@{listCallbackUrl()}"
+                },
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                  }
+                },
+                "path": "/incident-creation"
+              }
+            }
+          },
+          "actions": {
+            "Initialize_detectionTierMap": {
+              "runAfter": {},
+              "type": "InitializeVariable",
+              "inputs": {
+                "variables": [
+                  {
+                    "name": "detectionTierMap",
+                    "type": "Object",
+                    "value": {
+                      "WorldView IOC Match": 1,
+                      "PLC Program Download": 2,
+                      "PLC Mode Change to Program": 2,
+                      "Safety Controller Write": 2,
+                      "Segmentation Policy Blocked": 0,
+                      "Cross-Platform Correlation": 2
+                    }
+                  }
+                ]
+              }
+            },
+            "Get_IPs": {
+              "runAfter": {
+                "Initialize_detectionTierMap": [
+                  "Succeeded"
+                ]
+              },
+              "type": "ApiConnection",
+              "inputs": {
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                  }
+                },
+                "method": "post",
+                "path": "/entities/ip",
+                "body": "@triggerBody()?['object']?['properties']?['relatedEntities']"
+              }
+            },
+            "Compose_affectedIp": {
+              "runAfter": {
+                "Get_IPs": [
+                  "Succeeded"
+                ]
+              },
+              "type": "Compose",
+              "inputs": "@first(body('Get_IPs')?['IPs'])?['Address']"
+            },
+            "Run_enrichment_query": {
+              "runAfter": {
+                "Compose_affectedIp": [
+                  "Succeeded"
+                ]
+              },
+              "type": "ApiConnection",
+              "inputs": {
+                "body": "let targetIp = \"@{outputs('Compose_affectedIp')}\";\nlet subnets = _GetWatchlist('ot-subnet-context');\nlet roles   = _GetWatchlist('ot-role-context');\nCommonSecurityLog\n| where TimeGenerated > ago(1h)\n| where DestinationIP == targetIp\n| where DeviceVendor in~ (\"Dragos\", \"Forescout\")\n| summarize arg_max(TimeGenerated, *) by DestinationIP\n| extend DstRole = tostring(DeviceCustomString2)\n| evaluate ipv4_lookup(subnets, DestinationIP, subnet)\n| lookup kind=leftouter roles on $left.DstRole == $right.asset_role\n| extend RuleFloor = iff(todouble(purdue_level) <= 2 or criticality == \"safety_critical\", 2, 0)\n| project DestinationIP, DstRole, Activity, RuleId = DeviceEventClassID, MitreIcs = DeviceCustomString3, zone, plant, purdue_level, device_class, criticality, owner_team, poc_contact, maintenance_window, RuleFloor",
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['azuremonitorlogs']['connectionId']"
+                  }
+                },
+                "method": "post",
+                "path": "/queryData",
+                "queries": {
+                  "resourcegroups": "@parameters('WorkspaceResourceGroup')",
+                  "resourcename": "@parameters('WorkspaceName')",
+                  "resourcetype": "Log Analytics Workspace",
+                  "subscriptions": "@parameters('WorkspaceSubscriptionId')",
+                  "timerange": "Set in query"
+                }
+              }
+            },
+            "Compose_enrichment": {
+              "runAfter": {
+                "Run_enrichment_query": [
+                  "Succeeded"
+                ]
+              },
+              "type": "Compose",
+              "inputs": "@first(body('Run_enrichment_query')?['value'])"
+            },
+            "Compose_defaultTier": {
+              "runAfter": {
+                "Compose_enrichment": [
+                  "Succeeded"
+                ]
+              },
+              "type": "Compose",
+              "inputs": "@coalesce(variables('detectionTierMap')?[triggerBody()?['object']?['properties']?['title']], 0)"
+            },
+            "Compose_ruleFloor": {
+              "runAfter": {
+                "Compose_defaultTier": [
+                  "Succeeded"
+                ]
+              },
+              "type": "Compose",
+              "inputs": "@int(coalesce(outputs('Compose_enrichment')?['RuleFloor'], 0))"
+            },
+            "Compose_effectiveTier": {
+              "runAfter": {
+                "Compose_ruleFloor": [
+                  "Succeeded"
+                ]
+              },
+              "type": "Compose",
+              "inputs": "@if(greater(outputs('Compose_defaultTier'), outputs('Compose_ruleFloor')), outputs('Compose_defaultTier'), outputs('Compose_ruleFloor'))"
+            },
+            "Compose_severity": {
+              "runAfter": {
+                "Compose_effectiveTier": [
+                  "Succeeded"
+                ]
+              },
+              "type": "Compose",
+              "inputs": "@if(equals(outputs('Compose_effectiveTier'), 2), 'High', if(equals(outputs('Compose_effectiveTier'), 1), 'Medium', 'Informational'))"
+            },
+            "Add_enrichment_comment": {
+              "runAfter": {
+                "Compose_severity": [
+                  "Succeeded"
+                ]
+              },
+              "type": "ApiConnection",
+              "inputs": {
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                  }
+                },
+                "method": "post",
+                "path": "/Incidents/Comment",
+                "body": {
+                  "incidentArmId": "@triggerBody()?['object']?['id']",
+                  "message": "<h3>OT asset enrichment</h3><b>Affected asset:</b> @{outputs('Compose_affectedIp')} (@{outputs('Compose_enrichment')?['DstRole']})<br><b>Zone / Plant:</b> @{outputs('Compose_enrichment')?['zone']} / @{outputs('Compose_enrichment')?['plant']}<br><b>Purdue level:</b> @{outputs('Compose_enrichment')?['purdue_level']}<br><b>Device class:</b> @{outputs('Compose_enrichment')?['device_class']}<br><b>Criticality:</b> @{outputs('Compose_enrichment')?['criticality']}<br><b>Owner / contact:</b> @{outputs('Compose_enrichment')?['owner_team']} / @{outputs('Compose_enrichment')?['poc_contact']}<br><b>Maintenance window:</b> @{outputs('Compose_enrichment')?['maintenance_window']}<br><b>Detection default tier:</b> @{outputs('Compose_defaultTier')} &nbsp; <b>Rule floor:</b> @{outputs('Compose_ruleFloor')}<br><b>Effective response tier:</b> @{outputs('Compose_effectiveTier')}<br><i>Tier 2 = approval-gated containment; Tier 1 = conditional IT-side containment; Tier 0 = observe and enrich.</i>"
+                }
+              }
+            },
+            "Update_incident_severity_and_tags": {
+              "runAfter": {
+                "Add_enrichment_comment": [
+                  "Succeeded"
+                ]
+              },
+              "type": "ApiConnection",
+              "inputs": {
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                  }
+                },
+                "method": "put",
+                "path": "/Incidents",
+                "body": {
+                  "incidentArmId": "@triggerBody()?['object']?['id']",
+                  "severity": "@outputs('Compose_severity')",
+                  "tagsToAdd": {
+                    "TagsToAdd": [
+                      {
+                        "Tag": "OT-SOAR"
+                      },
+                      {
+                        "Tag": "@concat('tier-', string(outputs('Compose_effectiveTier')))"
+                      },
+                      {
+                        "Tag": "@coalesce(outputs('Compose_enrichment')?['criticality'], 'unknown-criticality')"
+                      },
+                      {
+                        "Tag": "@coalesce(outputs('Compose_enrichment')?['zone'], 'unknown-zone')"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "outputs": {}
+        },
+        "parameters": {
+          "$connections": {
+            "value": {
+              "azuresentinel": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('AzureSentinelConnectionName'))]",
+                "connectionName": "[variables('AzureSentinelConnectionName')]",
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuresentinel')]"
+              },
+              "azuremonitorlogs": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('AzureMonitorLogsConnectionName'))]",
+                "connectionName": "[variables('AzureMonitorLogsConnectionName')]",
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuremonitorlogs')]"
+              }
+            }
+          },
+          "WorkspaceSubscriptionId": {
+            "value": "[parameters('WorkspaceSubscriptionId')]"
+          },
+          "WorkspaceResourceGroup": {
+            "value": "[parameters('WorkspaceResourceGroup')]"
+          },
+          "WorkspaceName": {
+            "value": "[parameters('WorkspaceName')]"
+          }
+        }
+      }
+    }
+  ]
+}
