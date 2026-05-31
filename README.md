@@ -83,3 +83,7 @@ This is a lab tool. The generator emits synthetic events for parser and detectio
 ## License
 
 MIT — see `LICENSE`. Contributions welcome.
+
+## Optional extension: SOAR and Response (v2)
+
+This repository includes an optional Security Orchestration, Automation, and Response layer in [`soar/`](soar/README.md). The v1 monitoring lab described above is fully standalone; if you only want OT detection and monitoring, you can ignore the `soar/` directory. The SOAR extension adds asset enrichment, response tiering, and approval-gated containment with controlled recovery, aligned to the DoD/DoW Zero Trust for Operational Technology activities (6.5.1, 6.5.2, 6.7.1, 7.2.1, 7.2.5). See [`soar/README.md`](soar/README.md) for setup and operation.

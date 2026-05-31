@@ -1,0 +1,11 @@
+asset_role,device_class,criticality
+EngineeringWorkstation,EWS,process_critical
+EngineeringStation,EWS,process_critical
+HMI,HMI,process_critical
+Historian,Historian,process_critical
+JumpHost,IT_Host,support
+PLC,PLC,process_critical
+RTU,RTU,process_critical
+IED,IED,process_critical
+SafetyController,SIS,safety_critical
+DCSController,DCSController,process_critical

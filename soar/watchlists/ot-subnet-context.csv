@@ -1,0 +1,6 @@
+subnet,zone,plant,purdue_level,owner_team,poc_contact,maintenance_window
+10.21.4.0/24,Plant-A-L2,Plant A,2,Controls Engineering,controls-eng-a@example.mil,Sun 02:00-06:00
+10.30.7.0/24,Plant-B-L2,Plant B,2,Controls Engineering,controls-eng-b@example.mil,Sun 02:00-06:00
+10.40.2.0/24,Plant-C-L1,Plant C,1,Controls Engineering,controls-eng-c@example.mil,Sun 02:00-06:00
+10.50.5.0/24,Corporate-FileShares,Corporate,4,IT Infrastructure,it-infra@example.mil,Sat 23:00-Sun 03:00
+10.60.9.0/24,Engineering-DMZ,DMZ,3.5,OT Infrastructure,ot-infra@example.mil,Wed 20:00-22:00
