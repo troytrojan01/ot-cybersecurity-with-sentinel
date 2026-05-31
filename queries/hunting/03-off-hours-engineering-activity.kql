@@ -10,13 +10,14 @@
 CommonSecurityLog
 | where TimeGenerated > ago(7d)
 | where DeviceVendor =~ "Forescout" and DeviceProduct =~ "eyeInspect"
-| where isnotempty(DeviceProcessName)
+| extend EngineeringTool = tostring(column_ifexists("DeviceProcessName", ""))
+| where isnotempty(EngineeringTool)
 | extend HourLocal = hourofday(TimeGenerated),
          DayOfWeek = dayofweek(TimeGenerated)
 | where HourLocal < 7 or HourLocal >= 19          // before 7am or after 7pm
      or DayOfWeek == 0d or DayOfWeek == 6d         // weekend
 | project TimeGenerated, HourLocal, DayOfWeek,
-          EngineeringTool = DeviceProcessName,
+          EngineeringTool,
           Activity,
           SourceIP,
           DestinationIP,

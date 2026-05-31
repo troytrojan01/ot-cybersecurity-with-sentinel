@@ -15,7 +15,7 @@ CommonSecurityLog
     SrcAssetRole      = DeviceCustomString3,
     RuleCategory      = DeviceCustomString4,   // IndustrialThreatLibrary, BehavioralCheck, OperationalCheck, CustomRule
     AlertSeverityNum  = toint(DeviceCustomNumber1),
-    EngineeringTool   = DeviceProcessName,
+    EngineeringTool   = column_ifexists("DeviceProcessName", ""),
     Severity          = toint(LogSeverity)
 | project
     TimeGenerated,

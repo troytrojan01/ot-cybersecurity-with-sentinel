@@ -28,6 +28,6 @@ CommonSecurityLog
           SourceIP,
           DestinationIP,
           DstAssetRole = DeviceCustomString2,
-          EngineeringTool = DeviceProcessName,
+          EngineeringTool = column_ifexists("DeviceProcessName", ""),
           Message
 | order by TimeGenerated desc

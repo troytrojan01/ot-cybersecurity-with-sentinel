@@ -124,6 +124,7 @@ The optional SOAR automation rule triggers when the incident is created, so disa
 | Symptom | Fix |
 |---|---|
 | `Failed to resolve table or column expression named 'Dragos_Events'` | Save `queries/parsers/Dragos_Events.kql` as a function named `Dragos_Events` in the same workspace. |
+| `Failed to resolve scalar expression named 'DeviceProcessName'` | Pull the latest repo version. The eyeInspect parser uses `column_ifexists("DeviceProcessName", "")` because some Sentinel `CommonSecurityLog` schemas do not expose that optional column. |
 | `OT_Events_Unified` fails to save or run | Save `Dragos_Events`, `eyeInspect_Events`, and `eyeSegment_Events` first. |
 | Analytics rule validates but never fires | Confirm the rule lookup window matches the query `ago(...)` filter and that new synthetic events are still arriving. |
 | SOAR playbook enriches the wrong asset | Confirm entity mapping uses `DestinationIP` as the IP Address entity. |
