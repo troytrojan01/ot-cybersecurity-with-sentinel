@@ -24,7 +24,8 @@ soar/
 ## What you need in place first
 
 - v1 deployed and ingesting: a Sentinel workspace with `CommonSecurityLog` receiving the Dragos and Forescout synthetic telemetry (rsyslog to AMA to `CommonSecurityLog`).
-- The six detections from `detections/` deployed as Sentinel scheduled analytics rules.
+- Parser functions from `queries/parsers/` saved in Sentinel. At minimum, `WorldView IOC Match` needs the `Dragos_Events` function.
+- The six detections from `queries/detections/` deployed as Sentinel scheduled analytics rules. Use [`../queries/analytics-rule-setup.md`](../queries/analytics-rule-setup.md) for the parser prerequisites, exact rule names, cadence, and entity mapping.
 - Rights to create watchlists, deploy Logic Apps, create automation rules, and assign Azure roles.
 
 ## Setup in Sentinel, in order
@@ -40,6 +41,8 @@ Sentinel > Configuration > Watchlists > New, once per file:
 The sample rows match the shipped `ot_log_generator.py`. If you change the generator's subnets or roles, update the CSVs to match.
 
 ### Step 2: Prepare the analytics rules
+Before creating rules, save the parser functions described in [`../queries/analytics-rule-setup.md`](../queries/analytics-rule-setup.md). If Sentinel reports `Failed to resolve table or column expression named 'Dragos_Events'`, the `Dragos_Events` parser has not been saved as a function in the workspace.
+
 For each of the six detection rules:
 
 1. **Map `DestinationIP` as the IP entity** (Address identifier). The playbooks read the single IP entity as the affected asset, so map the destination, not the source. Keep `SourceIP` as a custom detail if you want it on the incident.

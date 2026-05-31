@@ -10,9 +10,10 @@ Recommended path:
 
 1. Start with [`exploration/`](exploration/) to confirm data is flowing
 2. Save the functions in [`parsers/`](parsers/) — they get used by everything downstream
-3. Use [`detections/`](detections/) as templates for analytics rules
-4. Use [`hunting/`](hunting/) for analyst-driven investigation
-5. Use [`operations/`](operations/) to monitor pipeline health and cost
+3. Follow [`analytics-rule-setup.md`](analytics-rule-setup.md) when creating Sentinel scheduled analytics rules
+4. Use [`detections/`](detections/) as templates for analytics rules
+5. Use [`hunting/`](hunting/) for analyst-driven investigation
+6. Use [`operations/`](operations/) to monitor pipeline health and cost
 
 ## Index
 
@@ -29,6 +30,7 @@ Recommended path:
 - [OT_Events_Unified.kql](parsers/OT_Events_Unified.kql) — union of all three platforms with a consistent schema
 
 ### Detections — analytics-rule-shaped queries
+- [Analytics rule setup guide](analytics-rule-setup.md) — parser prerequisites, rule names, cadence, entity mapping, and common fixes
 - [01-worldview-ioc-match.kql](detections/01-worldview-ioc-match.kql) — Dragos events tied to a named ICS threat actor
 - [02-plc-program-download.kql](detections/02-plc-program-download.kql) — program downloads to PLC (T0843)
 - [03-plc-mode-change.kql](detections/03-plc-mode-change.kql) — PLC mode change to PROGRAM (T0858)
