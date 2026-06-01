@@ -29,13 +29,14 @@ These rules are enforced in tooling, not just stated here: the tiering in the de
 
 ## 4. Pipeline overview
 
-A detection fires in Sentinel and creates an incident. A single automation rule then runs the enrichment playbook followed by the gated-containment playbook. Enrichment performs the asset lookups, computes the effective response tier, and writes context, severity, and a `tier-N` tag onto the incident. Containment runs only for `tier-2` incidents and only acts on human approval. Everything else is analyst-driven from the enriched incident.
+A detection fires in Sentinel and creates an incident. A single automation rule then runs the enrichment playbook, the ticketing playbook, and the gated-containment playbook in order. Enrichment performs the asset lookups, computes the effective response tier, and writes context, severity, and a `tier-N` tag onto the incident. Ticketing creates a lightweight tracking record using the Sentinel incident number as the ticket identifier. Containment runs only for `tier-2` incidents and only acts on human approval. Everything else is analyst-driven from the enriched incident and its linked ticket.
 
 ```
 Detection (KQL analytics rule)
    -> Sentinel incident (DestinationIP mapped as IP entity)
       -> Automation rule
          -> Enrichment & triage playbook   (subnet + role lookups, effective tier, severity, tags)
+         -> Ticketing playbook             (queue mailbox or replacement ticket sink, incident-number ticket id)
          -> Approval-gated containment      (tier-2 only; proposes, waits for approval, records recovery)
 ```
 
@@ -54,6 +55,9 @@ A KQL analytics rule matches Dragos or Forescout telemetry and raises an alert a
 
 ### Triage and enrich (automated)
 The enrichment playbook resolves the affected asset to its subnet context (zone, plant, Purdue level, owner, contact, maintenance window) and role context (device class, criticality), sets the effective tier and severity, and tags the incident. The SOC analyst reads the enriched incident rather than starting from raw logs.
+
+### Open tracking record (automated)
+The ticketing playbook creates a tracking record for each OT incident after enrichment. In the lab template, the default ticket sink is a queue mailbox and the ticket id is `OT-TKT-<Sentinel incident number>`. The same point in the workflow can be swapped to Planner, SharePoint, Azure DevOps, GitHub Issues, or another ticket system without changing the enrichment or containment logic.
 
 ### Decide
 Tier 0 stays with the analyst. Tier 1 may auto-contain on the IT side. Tier 2 moves to the approval gate. A safety-controller event always goes to the Safety Systems team regardless of other factors.
@@ -88,7 +92,7 @@ The analyst documents the outcome, confirms recovery, and records any tuning nee
 
 ## 9. Communication and escalation
 
-Approval requests route automatically to the asset POC from the watchlist. For high-severity or safety-related incidents, the incident lead coordinates a bridge with the OT engineer and, for SIS events, the Safety Systems team. Use the incident comments as the single source of timeline and decisions so the record stays with the incident.
+Approval requests route automatically to the asset POC from the watchlist. The ticketing playbook sends the tracking record to the configured queue mailbox or replacement ticket sink, and writes the ticket id back to the Sentinel incident. For high-severity or safety-related incidents, the incident lead coordinates a bridge with the OT engineer and, for SIS events, the Safety Systems team. Use the incident comments as the single source of timeline and decisions so the record stays with the incident, with the ticket used for work tracking and handoff.
 
 ## 10. False positives and maintenance windows
 
@@ -108,5 +112,6 @@ Program-download and mode-change detections are expected during scheduled mainte
 ## 12. Assumptions and lab limitations
 
 - Telemetry is synthetic and containment is simulated. The decision flow, documentation, and recovery process are the deliverable.
+- Ticketing is intentionally lightweight. The default implementation sends email to a queue mailbox, but the same action can be replaced with a production ticket sink such as Planner, SharePoint, Azure DevOps, GitHub Issues, ServiceNow, or Jira.
 - Because the generator places affected assets only in plant subnets (Purdue 1 and 2), Tier 2 dominates in practice; the Tier 1 auto-containment branch is exercised only if the generator is extended to emit IT-side destinations.
 - Connector action shapes in the playbooks may vary by version; the logic and process are authoritative, the exact action wiring is environment-specific.
