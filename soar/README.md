@@ -17,7 +17,9 @@ soar/
   playbooks/
     enrichment-triage/              azuredeploy.json + README
     gated-containment/              azuredeploy.json + README
+    ticketing/                      azuredeploy.json + README
   docs/
+    incident-workflow-snapshots.md  screenshots of working SOAR incidents
     ot-ir-runbook.md                documented OT IR process (6.7.1)
 ```
 
@@ -82,9 +84,10 @@ Sentinel > Automation > Create > Automation rule:
 - Condition (optional): scope to your OT analytics rules by rule name or analytics rule id.
 - Actions, in this exact order:
   1. Run playbook: `OT-Enrichment-Triage`
-  2. Run playbook: `OT-Gated-Containment`
+  2. Run playbook: `OT-Ticketing`, if deployed
+  3. Run playbook: `OT-Gated-Containment`
 
-Order matters. Enrichment must run first so the `tier-2` tag exists when the containment playbook's guard checks for it. If prompted, grant Sentinel permission to run playbooks: the **Microsoft Sentinel** service identity needs the **Microsoft Sentinel Playbook Operator** role on the resource group that holds the playbooks.
+Order matters. Enrichment must run first so the `tier-2` tag exists when the containment playbook's guard checks for it. Ticketing can run after enrichment so the ticket includes the enriched tags and owner context. If prompted, grant Sentinel permission to run playbooks: the **Microsoft Sentinel** service identity needs the **Microsoft Sentinel Playbook Operator** role on the resource group that holds the playbooks.
 
 ### Step 5: Test the loop
 Generate events so the analytics rules fire. For example, stream CEF from the generator to your syslog collector:
@@ -96,11 +99,14 @@ python ot_log_generator.py --stream --rate 2 \
 
 Then watch one incident move through the pipeline: incident created, enrichment comment and severity and `tier-N` tag applied, and for a Tier 2 incident an approval email sent to the asset POC. Approve to see the approved comment with the controlled-recovery checklist and the `pending-controlled-recovery` tag; reject to see the incident left for manual handling. `decision-matrix.md` explains why each detection lands where it does, and `docs/ot-ir-runbook.md` describes the full process.
 
+For examples of the expected incident output, see the [SOAR incident workflow snapshots](docs/incident-workflow-snapshots.md). They show enriched Sentinel incidents, ticket comments, response-tier tags, containment and recovery tags, evidence, entities, and analytics-rule details after the automation rule runs.
+
 ## How the pieces fit
 
 - `decision-matrix.md` is the policy: which detection gets which response tier and why.
 - The watchlists are the asset context: they turn an IP into a Purdue level, criticality, owner, and contact, and they set the safety floor.
 - The enrichment playbook applies the policy to each incident: it looks up the asset, computes the effective tier, and writes context, severity, and tags.
+- The ticketing playbook creates the ops ticket email and records the ticket reference as an incident comment.
 - The gated-containment playbook is the human gate: for Tier 2 it proposes a device-appropriate action, waits for approval, and records controlled recovery.
 - The runbook is the documented process that wraps all of the above.
 
